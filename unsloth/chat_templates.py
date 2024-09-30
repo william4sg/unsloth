@@ -71,6 +71,8 @@ TEMPLATE """{{ if .System }}{{ .System }}
 {{ end }}>>> Assistant: {{ .Response }}{__EOS_TOKEN__}
 """
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 SYSTEM """You are a helpful assistant to the user"""
 '''
 
@@ -106,6 +108,8 @@ TEMPLATE """{{ if .System }}<|system|>
 {{ .Response }}{__EOS_TOKEN__}
 """
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 zephyr_eos_token = "eos_token"
@@ -141,6 +145,8 @@ TEMPLATE """{{ if .System }}<|im_start|>system
 """
 PARAMETER stop "<|im_start|>"
 PARAMETER stop "<|im_end|>"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 chatml_eos_token = "<|im_end|>"
@@ -179,6 +185,8 @@ mistral_ollama = \
 FROM {__FILE_LOCATION__}
 TEMPLATE """[INST] {{ if .System }}{{ .System }} {{ end }}{{ .Prompt }} [/INST]"""
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 mistral_eos_token = "eos_token"
@@ -218,6 +226,8 @@ TEMPLATE """[INST] <<SYS>>{{ .System }}<</SYS>>
 
 {{ .Prompt }} [/INST]"""
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 llama_eos_token = "eos_token"
@@ -255,6 +265,8 @@ vicuna_ollama = \
 FROM {__FILE_LOCATION__}
 TEMPLATE """{{ if .System }}{{ .System }} {{ end }}{{ if .Prompt }}USER: {{ .Prompt }} {{ end }}ASSISTANT: {{ .Response }} {__EOS_TOKEN__}"""
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 vicuna_eos_token = "eos_token"
@@ -294,6 +306,8 @@ TEMPLATE """{{ if .System }}{{ .System }}
 {{ end }}### Assistant: {{ .Response }}{__EOS_TOKEN__}
 """
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 SYSTEM """A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions."""
 '''
 
@@ -339,6 +353,8 @@ TEMPLATE """{{ if .System }}{{ .System }}
 
 """
 PARAMETER stop "{__EOS_TOKEN__}"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 SYSTEM """Below are some instructions that describe some tasks. Write responses that appropriately complete each request."""
 '''
 
@@ -383,6 +399,8 @@ PARAMETER repeat_penalty 1
 PARAMETER stop "<start_of_turn>"
 PARAMETER stop "<end_of_turn>"
 PARAMETER penalize_newline false
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 gemma_eos_token = "<end_of_turn>"
@@ -408,6 +426,8 @@ PARAMETER repeat_penalty 1
 PARAMETER stop "<|im_start|>"
 PARAMETER stop "<|im_end|>"
 PARAMETER penalize_newline false
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 gemma_chatml_eos_token = (
@@ -464,6 +484,8 @@ TEMPLATE """{{ if .System }}<|start_header_id|>system<|end_header_id|>
 PARAMETER stop "<|start_header_id|>"
 PARAMETER stop "<|end_header_id|>"
 PARAMETER stop "<|eot_id|>"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 llama3_template_eos_token = "eos_token"
@@ -472,8 +494,8 @@ pass
 
 
 # =========================================== Phi-3
+# "{{ bos_token }}"\ # Phi-3.5 removes BOS?
 phi3_template = \
-    "{{ bos_token }}"\
     "{% for message in messages %}"\
         "{% if message['role'] == 'user' %}"\
             "{{'<|user|>\n' + message['content'] + '<|end|>\n'}}"\
@@ -502,10 +524,331 @@ TEMPLATE """{{ if .System }}<|system|>
 PARAMETER stop "<|end|>"
 PARAMETER stop "<|user|>"
 PARAMETER stop "<|assistant|>"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
 '''
 
 phi3_template_eos_token = "<|end|>"
-CHAT_TEMPLATES["phi-3"] = (phi3_template, phi3_template_eos_token, False, phi3_ollama,)
+CHAT_TEMPLATES["phi-3"]   = (phi3_template, phi3_template_eos_token, False, phi3_ollama,)
+CHAT_TEMPLATES["phi-35"]  = CHAT_TEMPLATES["phi-3"]
+CHAT_TEMPLATES["phi-3.5"] = CHAT_TEMPLATES["phi-3"]
+pass
+
+# =========================================== Llama-3.1
+"""
+No trimming in Llama 3.1 Instruct!
+Also an extra newline for Cutting Knowledge Date
+See https://colab.research.google.com/drive/1Xpqq5xpIgO-B00MQ-UccYMwN2J8QFgBM?usp=sharing
+
+Also should be
+
+import datetime
+tokenizer.apply_chat_template(
+    messages,
+    add_generation_prompt = True,
+    tokenize = False,
+    date_string = datetime.today().strftime("%d %B %Y")),
+)
+"""
+
+llama31_template = \
+"""{{- bos_token }}
+{%- if custom_tools is defined %}
+    {%- set tools = custom_tools %}
+{%- endif %}
+{%- if not tools_in_user_message is defined %}
+    {%- set tools_in_user_message = true %}
+{%- endif %}
+{%- if not date_string is defined %}
+    {%- set date_string = "26 July 2024" %}
+{%- endif %}
+{%- if not tools is defined %}
+    {%- set tools = none %}
+{%- endif %}
+
+{#- This block extracts the system message, so we can slot it into the right place. #}
+{%- if messages[0]['role'] == 'system' %}
+    {%- set system_message = messages[0]['content'] %}
+    {%- set messages = messages[1:] %}
+{%- else %}
+    {%- set system_message = "" %}
+{%- endif %}
+
+{#- System message + builtin tools #}
+{{- "<|start_header_id|>system<|end_header_id|>\n\n" }}
+{%- if builtin_tools is defined or tools is not none %}
+    {{- "Environment: ipython\n" }}
+{%- endif %}
+{%- if builtin_tools is defined %}
+    {{- "Tools: " + builtin_tools | reject('equalto', 'code_interpreter') | join(", ") + "\n\n"}}
+{%- endif %}
+{{- "Cutting Knowledge Date: December 2023\n" }}
+{{- "Today Date: " + date_string + "\n\n" }}
+{%- if tools is not none and not tools_in_user_message %}
+    {{- "You have access to the following functions. To call a function, please respond with JSON for a function call." }}
+    {{- 'Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}.' }}
+    {{- "Do not use variables.\n\n" }}
+    {%- for t in tools %}
+        {{- t | tojson(indent=4) }}
+        {{- "\n\n" }}
+    {%- endfor %}
+{%- endif %}
+{{- system_message }}
+{{- "<|eot_id|>" }}
+
+{#- Custom tools are passed in a user message with some extra guidance #}
+{%- if tools_in_user_message and not tools is none %}
+    {#- Extract the first user message so we can plug it in here #}
+    {%- if messages | length != 0 %}
+        {%- set first_user_message = messages[0]['content'] %}
+        {%- set messages = messages[1:] %}
+    {%- else %}
+        {{- raise_exception("Cannot put tools in the first user message when there's no first user message!") }}
+{%- endif %}
+    {{- '<|start_header_id|>user<|end_header_id|>\n\n' -}}
+    {{- "Given the following functions, please respond with a JSON for a function call " }}
+    {{- "with its proper arguments that best answers the given prompt.\n\n" }}
+    {{- 'Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}.' }}
+    {{- "Do not use variables.\n\n" }}
+    {%- for t in tools %}
+        {{- t | tojson(indent=4) }}
+        {{- "\n\n" }}
+    {%- endfor %}
+    {{- first_user_message + "<|eot_id|>"}}
+{%- endif %}
+
+{%- for message in messages %}
+    {%- if not (message.role == 'ipython' or message.role == 'tool' or 'tool_calls' in message) %}
+        {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n'+ message['content'] + '<|eot_id|>' }}
+    {%- elif 'tool_calls' in message %}
+        {%- if not message.tool_calls|length == 1 %}
+            {{- raise_exception("This model only supports single tool-calls at once!") }}
+        {%- endif %}
+        {%- set tool_call = message.tool_calls[0].function %}
+        {%- if builtin_tools is defined and tool_call.name in builtin_tools %}
+            {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' -}}
+            {{- "<|python_tag|>" + tool_call.name + ".call(" }}
+            {%- for arg_name, arg_val in tool_call.arguments | items %}
+                {{- arg_name + '="' + arg_val + '"' }}
+                {%- if not loop.last %}
+                    {{- ", " }}
+                {%- endif %}
+                {%- endfor %}
+            {{- ")" }}
+        {%- else  %}
+            {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' -}}
+            {{- '{"name": "' + tool_call.name + '", ' }}
+            {{- '"parameters": ' }}
+            {{- tool_call.arguments | tojson }}
+            {{- "}" }}
+        {%- endif %}
+        {%- if builtin_tools is defined %}
+            {#- This means we're in ipython mode #}
+            {{- "<|eom_id|>" }}
+        {%- else %}
+            {{- "<|eot_id|>" }}
+        {%- endif %}
+    {%- elif message.role == "tool" or message.role == "ipython" %}
+        {{- "<|start_header_id|>ipython<|end_header_id|>\n\n" }}
+        {%- if message.content is mapping or message.content is iterable %}
+            {{- message.content | tojson }}
+        {%- else %}
+            {{- message.content }}
+        {%- endif %}
+        {{- "<|eot_id|>" }}
+    {%- endif %}
+{%- endfor %}
+{%- if add_generation_prompt %}
+    {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' }}
+{%- endif %}
+"""
+pass
+
+# Ollama from https://ollama.com/library/llama3.1 (needs updating!)
+llama31_ollama = \
+'''
+FROM {__FILE_LOCATION__}
+TEMPLATE """{{ if .Messages }}
+{{- if or .System .Tools }}<|start_header_id|>system<|end_header_id|>
+{{- if .System }}
+
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+You are a helpful assistant with tool calling capabilities. When you receive a tool call response, use the output to format an answer to the orginal use question.
+{{- end }}
+{{- end }}<|eot_id|>
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 }}
+{{- if eq .Role "user" }}<|start_header_id|>user<|end_header_id|>
+{{- if and $.Tools $last }}
+
+Given the following functions, please respond with a JSON for a function call with its proper arguments that best answers the given prompt.
+
+Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}. Do not use variables.
+
+{{ $.Tools }}
+{{- end }}
+
+{{ .Content }}<|eot_id|>{{ if $last }}<|start_header_id|>assistant<|end_header_id|>
+
+{{ end }}
+{{- else if eq .Role "assistant" }}<|start_header_id|>assistant<|end_header_id|>
+{{- if .ToolCalls }}
+
+{{- range .ToolCalls }}{"name": "{{ .Function.Name }}", "parameters": {{ .Function.Arguments }}}{{ end }}
+{{- else }}
+
+{{ .Content }}{{ if not $last }}<|eot_id|>{{ end }}
+{{- end }}
+{{- else if eq .Role "tool" }}<|start_header_id|>ipython<|end_header_id|>
+
+{{ .Content }}<|eot_id|>{{ if $last }}<|start_header_id|>assistant<|end_header_id|>
+
+{{ end }}
+{{- end }}
+{{- end }}
+{{- else }}
+{{- if .System }}<|start_header_id|>system<|end_header_id|>
+
+{{ .System }}<|eot_id|>{{ end }}{{ if .Prompt }}<|start_header_id|>user<|end_header_id|>
+
+{{ .Prompt }}<|eot_id|>{{ end }}<|start_header_id|>assistant<|end_header_id|>
+
+{{ end }}{{ .Response }}{{ if .Response }}<|eot_id|>{{ end }}"""
+PARAMETER stop "<|start_header_id|>"
+PARAMETER stop "<|end_header_id|>"
+PARAMETER stop "<|eot_id|>"
+PARAMETER stop "<|eom_id|>"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
+'''
+
+llama31_template_eos_token = "eos_token"
+CHAT_TEMPLATES["llama-3.1"] = (llama31_template, llama31_template_eos_token, False, llama31_ollama,)
+CHAT_TEMPLATES["llama-31"]  = (llama31_template, llama31_template_eos_token, False, llama31_ollama,)
+pass
+
+
+# =========================================== Qwen 2.5
+qwen25_template = \
+"""{%- if tools %}
+    {{- \'<|im_start|>system\\n\' }}
+    {%- if messages[0][\'role\'] == \'system\' %}
+        {{- messages[0][\'content\'] }}
+    {%- else %}
+        {{- \'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.\' }}
+    {%- endif %}
+    {{- "\\n\\n# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>" }}
+    {%- for tool in tools %}
+        {{- "\\n" }}
+        {{- tool | tojson }}
+    {%- endfor %}
+    {{- "\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\"name\\": <function-name>, \\"arguments\\": <args-json-object>}\\n</tool_call><|im_end|>\\n" }}\n{%- else %}
+    {%- if messages[0][\'role\'] == \'system\' %}
+        {{- \'<|im_start|>system\\n\' + messages[0][\'content\'] + \'<|im_end|>\\n\' }}
+    {%- else %}
+        {{- \'<|im_start|>system\\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\\n\' }}
+    {%- endif %}\n{%- endif %}\n{%- for message in messages %}
+    {%- if (message.role == "user") or (message.role == "system" and not loop.first) or (message.role == "assistant" and not message.tool_calls) %}
+        {{- \'<|im_start|>\' + message.role + \'\\n\' + message.content + \'<|im_end|>\' + \'\\n\' }}
+    {%- elif message.role == "assistant" %}
+        {{- \'<|im_start|>\' + message.role }}
+        {%- if message.content %}
+            {{- \'\\n\' + message.content }}
+        {%- endif %}
+        {%- for tool_call in message.tool_calls %}
+            {%- if tool_call.function is defined %}
+                {%- set tool_call = tool_call.function %}
+            {%- endif %}
+            {{- \'\\n<tool_call>\\n{"name": "\' }}
+            {{- tool_call.name }}
+            {{- \'", "arguments": \' }}
+            {{- tool_call.arguments | tojson }}
+            {{- \'}\\n</tool_call>\' }}
+        {%- endfor %}
+        {{- \'<|im_end|>\\n\' }}
+    {%- elif message.role == "tool" %}
+        {%- if (loop.index0 == 0) or (messages[loop.index0 - 1].role != "tool") %}            {{- \'<|im_start|>user\' }}
+        {%- endif %}
+        {{- \'\\n<tool_response>\\n\' }}
+        {{- message.content }}
+        {{- \'\\n</tool_response>\' }}
+        {%- if loop.last or (messages[loop.index0 + 1].role != "tool") %}
+            {{- \'<|im_end|>\\n\' }}
+        {%- endif %}
+    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}
+    {{- \'<|im_start|>assistant\\n\' }}
+{%- endif %}
+"""
+
+
+# Ollama from https://ollama.com/library/qwen2.5/blobs/eb4402837c78
+qwen25_ollama = \
+'''
+FROM {__FILE_LOCATION__}
+TEMPLATE """{{- if .Messages }}
+{{- if or .System .Tools }}<|im_start|>system
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {{ .Function }}}
+{{- end }}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>
+{{- end }}<|im_end|>
+{{ end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 -}}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{ if .Content }}{{ .Content }}
+{{- else if .ToolCalls }}<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}{{ if not $last }}<|im_end|>
+{{ end }}
+{{- else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- if and (ne .Role "assistant") $last }}<|im_start|>assistant
+{{ end }}
+{{- end }}
+{{- else }}
+{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}"""
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+PARAMETER temperature 1.5
+PARAMETER min_p 0.1
+'''
+
+qwen25_template_eos_token = "eos_token"
+CHAT_TEMPLATES["qwen-2.5"] = (qwen25_template, qwen25_template_eos_token, False, qwen25_ollama,)
+CHAT_TEMPLATES["qwen-25"]  = (qwen25_template, qwen25_template_eos_token, False, qwen25_ollama,)
+CHAT_TEMPLATES["qwen25"]   = (qwen25_template, qwen25_template_eos_token, False, qwen25_ollama,)
+CHAT_TEMPLATES["qwen2.5"]  = (qwen25_template, qwen25_template_eos_token, False, qwen25_ollama,)
 pass
 
 
@@ -680,21 +1023,33 @@ def get_chat_template(
         )
     pass
 
+    # Careful on Gemma
+    # bos_token is a must or else losses become too high
+    if IS_GEMMA and not chat_template.startswith(("{{ bos_token }}", "{{- bos_token }}")):
+        chat_template = "{{ bos_token }}" + chat_template
+    pass
+
     # For ShareGPT role -> from and content -> value
-    chat_template = chat_template\
+    new_chat_template = chat_template\
         .replace("'role'",      "'" + mapping["role"]      + "'")\
         .replace("'content'",   "'" + mapping["content"]   + "'")\
         .replace("'user'",      "'" + mapping["user"]      + "'")\
         .replace("'assistant'", "'" + mapping["assistant"] + "'")
 
-    # Careful on Gemma
-    # bos_token is a must or else losses become too high
-    if IS_GEMMA and not chat_template.startswith("{{ bos_token }}"):
-        chat_template = "{{ bos_token }}" + chat_template
-    pass
-
     _, tokenizer = patch_tokenizer(model = None, tokenizer = tokenizer)
-    tokenizer.padding_side  = old_padding_side
+    tokenizer.padding_side = old_padding_side
+
+    # If not normal HF, we add a check to make old templates work
+    if mapping != {"role" : "role", "content" : "content", "user" : "user", "assistant" : "assistant"}:
+        chat_template = \
+            "{% if 'role' in messages[0] %}" + \
+            chat_template + \
+            "{% else %}" + \
+            new_chat_template + \
+            "{% endif %}"
+    else:
+        chat_template = new_chat_template
+    pass
     tokenizer.chat_template = chat_template
 
     # Also fix up other tokens
@@ -825,7 +1180,7 @@ def to_sharegpt(
     merged_prompt = "",
     merged_column_name = "instruction",
     output_column_name = "output",
-    remove_unsued_columns = True,
+    remove_unused_columns = True,
     conversation_extension = 1,
     random_state = 3407,
 ):
@@ -839,7 +1194,7 @@ def to_sharegpt(
     merged_prompt = "",                 Prompt to merge columns into 1 input
     merged_column_name = "instruction", Final column name for the input  field
     output_column_name = "output",      Final column name for the output field
-    remove_unsued_columns = True,
+    remove_unused_columns = True,
     conversation_extension = 1,         Automatically combines `conversation_extension` convos into 1
     random_state = 3407,
     """
@@ -860,8 +1215,8 @@ def to_sharegpt(
         assistants = examples[output_column_name]
         texts = [
             [
-                {"from" : "user",      "content" : str(user)     },
-                {"from" : "assistant", "content" : str(assistant)},
+                {"from" : "human", "value" : str(user)     },
+                {"from" : "gpt",   "value" : str(assistant)},
             ] \
             for user, assistant in zip(users, assistants)
         ]
@@ -872,8 +1227,8 @@ def to_sharegpt(
         __convert_to_sharegpt__,
         batched = True,
         desc = "Converting to ShareGPT",
-        # Remove unsued columns!
-        remove_columns = dataset.column_names if remove_unsued_columns else None,
+        # Remove unused columns!
+        remove_columns = dataset.column_names if remove_unused_columns else None,
     )
 
     # Randomnly concat conversations to create a long stream!
@@ -907,8 +1262,8 @@ def to_sharegpt(
         __combine_conversations__,
         batched = True,
         desc = "Extending conversations",
-        # Remove unsued columns!
-        remove_columns = dataset.column_names if remove_unsued_columns else None,
+        # Remove unused columns!
+        remove_columns = dataset.column_names if remove_unused_columns else None,
     )
     return dataset
 pass
@@ -1252,9 +1607,10 @@ extra_eos_tokens = None,
     ollama_eos = '\n'.join(f'PARAMETER stop "{eos}"' for eos in ollama_eos)
 
     # Ollama modelfile
+    part = '"""'
     modelfile = 'FROM {__FILE_LOCATION__}\n\n'\
-    'TEMPLATE """' + system_modelfile + input_modelfile + output_modelfile + \
-    '"""\n\n' + ollama_eos
+    'TEMPLATE ' + part + system_modelfile + input_modelfile + output_modelfile + \
+        part + '\n\n' + ollama_eos
 
     # HF Jinja Chat template
     def process(part, which, content = "message['content']"):
@@ -1346,7 +1702,7 @@ extra_eos_tokens = None,
 
     # Check jinja tempate for bos
     if always_bos_token:
-        if not jinja_template.startswith("{{ bos_token }}"):
+        if not jinja_template.startswith(("{{ bos_token }}", "{{- bos_token }}")):
             jinja_template = "{{ bos_token }}" + jinja_template
     pass
 
@@ -1453,6 +1809,70 @@ extra_eos_tokens = None,
 pass
 
 
+# From https://www.geeksforgeeks.org/longest-common-substring-array-strings/
+# Longest Common Substring in an Array of Strings
+def _longest_common_substring(arr):
+    n = len(arr)
+    s = arr[0]
+    l = len(s)
+    res = ""
+    for i in range(l):
+        for j in range(i + 1, l + 1):
+            stem = s[i:j]
+            k = 1
+            for k in range(1, n):
+                if stem not in arr[k]:
+                    break
+            if (k + 1 == n and len(res) < len(stem)):
+                res = stem
+    return res
+pass
+
+
+def _find_common_token_ids(component, tokenizer):
+    """
+    \n### User:\n\n
+    \n\n### User:\n\n
+    etc
+    we need to find the middle most repeatted part.
+    Tokenizers can tokenize newlines or spaces as 1 token!
+    """
+    right_text = ""
+    if   component.endswith (" "): right_text = " "
+    elif component.endswith("\n"): right_text = "\n"
+    left_text = ""
+    if   component.startswith (" "): left_text = " "
+    elif component.startswith("\n"): left_text = "\n"
+    stripped = component.strip()
+
+    # Add current pieces and also newlines
+    all_input_ids = []
+    for left in range(3):
+        for right in range(3):
+            x = left*left_text + stripped + right*right_text
+            x = tokenizer(x, add_special_tokens = False).input_ids
+            all_input_ids.append(x)
+
+            x = left*"\n" + stripped + right*"\n"
+            x = tokenizer(x, add_special_tokens = False).input_ids
+            all_input_ids.append(x)
+        pass
+    pass
+    substring = _longest_common_substring([str(x + [0]) for x in all_input_ids])
+    substring = substring.split(", ")[:-1]
+    substring = [int(x) for x in substring]
+
+    # Also get rest of tokenized string
+    original = tokenizer(component, add_special_tokens = False).input_ids
+    # Get optional left and right
+    for j in range(len(original)):
+        if original[j : j + len(substring)] == substring: break
+    optional_left  = original[:j]
+    optional_right = original[j+len(substring):]
+    return substring, optional_left, optional_right
+pass
+
+
 def train_on_responses_only(
     trainer,
     instruction_part = None,
@@ -1479,41 +1899,87 @@ def train_on_responses_only(
         response_part    = tokenizer._unsloth_output_part
     pass
 
-    instruction_ids = tokenizer(instruction_part,  add_special_tokens = False).input_ids
-    response_ids    = tokenizer(response_part, add_special_tokens = False).input_ids
+    # Get most common tokens since tokenizers can tokenize stuff differently!
+    Q_must, Q_left, Q_right = _find_common_token_ids(instruction_part, tokenizer)
+    A_must, A_left, A_right = _find_common_token_ids(response_part,    tokenizer)
 
-    instruction_length = len(instruction_ids)
-    response_length    = len(response_ids)
-    max_length = max(instruction_length, response_length)
+    # Store some temporary stuff
+    A_first = A_must[0]
+    len_A_must = len(A_must)
+    A_left_reversed = A_left[::-1]
+    A_right_forward = A_right
+
+    Q_first = Q_must[0]
+    len_Q_must = len(Q_must)
+    Q_left_reversed = Q_left[::-1]
+    Q_right_forward = Q_right
 
     def _train_on_responses_only(examples):
         input_ids_ = examples["input_ids"]
         all_labels = []
 
         for input_ids in input_ids_:
-
-            labels = [-100] * len(input_ids)
-            m = len(input_ids) - max_length
-            first_response    = response_ids[0]
-            first_instruction = instruction_ids[0]
+            n = len(input_ids)
+            labels = [-100] * n
+            n_minus_1 = n - 1
             j = 0
-            while j < m:
-                if input_ids[j] == first_response:
-                    if input_ids[j : j+response_length] == response_ids:
-                        j = j + response_length
-                        start = j
-                        while j < m:
-                            if input_ids[j] == first_instruction and input_ids[j : j+instruction_length] == instruction_ids:
-                                j = j + instruction_length
-                                labels[start : j] = input_ids[start : j]
-                                break
-                            elif j == (m-1):
-                                j = m
-                                labels[start:] = input_ids[start:]
-                                break
+            while j < n:
+                # Find <assistant>
+                if (input_ids[j] == A_first) and \
+                    (input_ids[j : (k := j + len_A_must)] == A_must):
+
+                    # Now backtrack to get previous optional tokens
+                    for optional_left in A_left_reversed:
+                        if j < 1: break
+                        if optional_left == input_ids[j-1]: j -= 1
+                        else: break
+                    pass
+                    # And forwards look as well
+                    for optional_right in A_right_forward:
+                        if k >= n_minus_1: break
+                        if optional_right == input_ids[k+1]: k += 1
+                        else: break
+                    pass
+                    # assistant_j = j
+                    assistant_k = k
+
+                    j = assistant_k
+                    # Given <assistant>, now find next user
+                    while j < n:
+                        # Find <user>
+                        # Also accept last final item if assistant is the last turn
+                        if (j == n_minus_1) or \
+                            ((input_ids[j] == Q_first) and \
+                             (input_ids[j : (k := j + len_Q_must)] == Q_must)):
+
+                            # Now backtrack to get previous optional tokens
+                            for optional_left in Q_left_reversed:
+                                if j < 1: break
+                                if optional_left == input_ids[j-1]: j -= 1
+                                else: break
                             pass
-                            j += 1
+                            # And forwards look as well
+                            for optional_right in Q_right_forward:
+                                if k >= n_minus_1: break
+                                if optional_right == input_ids[k+1]: k += 1
+                                else: break
+                            pass
+                            user_j = j
+                            # Account for last item
+                            if user_j != n_minus_1:
+                                # user_k = k
+                                # j = user_k
+                                j = k
+                            else:
+                                user_j = n
+                                k = n
+                            pass
+                            # Now copy input_ids to labels
+                            labels[assistant_k : user_j] = input_ids[assistant_k : user_j]
+                            # print(assistant_j, assistant_k, user_j, user_k)
+                            break
                         pass
+                        j += 1
                     pass
                 pass
                 j += 1
@@ -1522,7 +1988,11 @@ def train_on_responses_only(
         pass
         return { "labels" : all_labels }
     pass
-    trainer.train_dataset = trainer.train_dataset.map(_train_on_responses_only, batched = True)
+
+    if hasattr(trainer, "train_dataset") and trainer.train_dataset is not None:
+        trainer.train_dataset = trainer.train_dataset.map(_train_on_responses_only, batched = True)
+    if hasattr(trainer, "eval_dataset") and trainer.eval_dataset is not None:
+        trainer.eval_dataset = trainer.eval_dataset.map(_train_on_responses_only, batched = True)
     return trainer
 pass
 
